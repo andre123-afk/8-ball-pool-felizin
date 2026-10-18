@@ -151,6 +151,24 @@
   <canvas id="board" width="1340" height="700"></canvas>
   <button type="button" class="fsbtn" id="fsBtn" aria-label="Pantalla completa">&#x26F6;</button>
   <div class="rotate" id="rotate"><div class="ricon">&#x21BB;</div><p>Gira tu celular en horizontal para jugar</p></div>
+
+  <!-- chat de texto y de voz (solo partidas online) -->
+  <div class="netui hidden" id="netui">
+    <div class="voicebar hidden" id="voiceBar" role="status"></div>
+    <div class="chatpop hidden" id="chatPop"></div>
+    <div class="chatpanel hidden" id="chatPanel">
+      <div class="chathead"><b>Chat con tu rival</b><button type="button" id="chatClose" aria-label="Cerrar chat">&times;</button></div>
+      <div class="chatlog" id="chatLog" aria-live="polite"></div>
+      <form class="chatform" id="chatForm" autocomplete="off">
+        <input id="chatIn" maxlength="500" autocomplete="off" enterkeyhint="send" placeholder="Escribe lo que quieras...">
+        <button type="submit" class="btn">Enviar</button>
+      </form>
+    </div>
+    <div class="netbtns">
+      <button type="button" id="micBtn" aria-pressed="false" aria-label="Micrófono (chat de voz)" title="Chat de voz">&#x1F3A4;</button>
+      <button type="button" id="chatBtn" aria-label="Chat de texto" title="Chat de texto">&#x1F4AC;<i class="nbadge hidden" id="chatN">0</i></button>
+    </div>
+  </div>
 </section>
 
 <!-- ============ VENTANAS ============ -->

@@ -115,6 +115,16 @@ function fileToAvatar(file) {
   });
 }
 
+/** Versión pequeña (128x128) de la foto: es la que se envía al rival en las partidas online. */
+function shrink(dataUrl, size = 128) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => { const c = document.createElement('canvas'); c.width = c.height = size; c.getContext('2d').drawImage(img, 0, 0, size, size); res(c.toDataURL('image/jpeg', .75)); };
+    img.onerror = () => res('');
+    img.src = dataUrl;
+  });
+}
+
 /* ================= HASH DE CONTRASEÑA ================= */
 async function hash(pw, salt) {
   const data = new TextEncoder().encode(salt + ':' + pw);
@@ -184,7 +194,7 @@ $('#formUp').addEventListener('submit', async e => {
   if (p1.length < 4) return err('#upErr', 'La contraseña debe tener al menos 4 caracteres.');
   if (p1 !== p2) return err('#upErr', 'Las contraseñas no coinciden.');
   const salt = Math.random().toString(36).slice(2);
-  all[key] = { name, salt, hash: await hash(p1, salt), photo: regPhoto, created: Date.now(), level: 1, xp: 0, coins: START_COINS, games: 0, wins: 0 }; normalize(all[key]);
+  all[key] = { name, salt, hash: await hash(p1, salt), photo: regPhoto, photoS: regPhoto.startsWith('data:image') ? await shrink(regPhoto, 128) : '', created: Date.now(), level: 1, xp: 0, coins: START_COINS, games: 0, wins: 0 }; normalize(all[key]);
   if (!write(KEY_USERS, all)) return err('#upErr', 'No hay espacio para guardar la cuenta. Prueba con otra foto.');
   $('#formUp').reset(); regPhoto = '';
   write(KEY_SESSION, key); localStorage.setItem(KEY_LAST, name);
@@ -212,6 +222,7 @@ function normalize(u) {
   u.level = Math.max(1, n(u.level, 1)); u.xp = n(u.xp, 0); u.coins = n(u.coins, START_COINS);
   u.games = n(u.games, 0); u.wins = n(u.wins, 0); u.streak = n(u.streak, 0); u.best = n(u.best, 0);
   u.cue = n(u.cue, 0); u.earned = n(u.earned, 0); u.lastGift = n(u.lastGift, -1);
+  if (typeof u.photoS !== 'string') u.photoS = '';
   if (!Array.isArray(u.boxes)) u.boxes = [];
   if (!Array.isArray(u.pieces)) u.pieces = [];
   while (u.pieces.length < P8.CUES.length) u.pieces.push(0);
@@ -255,6 +266,7 @@ function enter(key) {
   cur = key; acc = normalize(all[key]);
   if (acc.coins < 100) { acc.coins = 500; toast('Te regalamos 500 monedas para seguir jugando.'); }
   save(); show('home'); refreshHome();
+  if (acc.photo && acc.photo.startsWith('data:image') && !acc.photoS) { const me = acc; shrink(me.photo, 128).then(d => { if (d && acc === me) { me.photoS = d; save(); } }); }
 }
 function refreshHome() {
   const u = acc;
@@ -300,10 +312,12 @@ $('#tables').addEventListener('click', e => {
 
 /* ---------- partida ---------- */
 function launchGame(o) {
-  closeModal(); goFull(); show('play');
+  closeModal(); goFull(); show('play'); netuiShow(o.mode !== 0);
   game = new P8.Game({
     canvas: $('#board'), acc, save, mode: o.mode, tbl: o.tbl, seed: o.seed, conn: o.conn || null,
+    onChat: t => { if (game) chatAdd(game.pl[1 - game.me].name, t, false); },
     onEnd: html => {
+      netuiShow(false); voiceStop();
       setTimeout(endNet, 1500);
       openModal(`<h2>Resultado</h2>${html}<div class="mrow"><button class="btn" id="mOk">Continuar</button></div>`);
       $('#mOk').onclick = () => { closeModal(); leaveFull(); if (game) game.destroy(); game = null; enter(cur); };
@@ -322,9 +336,10 @@ function profileModal(p, editable) {
   const rows = [['Nivel', `${p.level} (${p.xp}/${P8.need(p)} XP)`], ['Partidas jugadas', p.games], ['Victorias', p.wins], ['Derrotas', p.games - p.wins],
     ['% de victorias', (p.games ? Math.round(p.wins * 100 / p.games) : 0) + '%'], ['Ganancias totales', fmt(p.earned)], ['Racha actual', p.streak], ['Mejor racha', p.best], ['Taco', P8.CUES[Math.min(p.cue | 0, P8.CUES.length - 1)].name]];
   const canAdd = game && game.mode !== 0 && !editable && !acc.friends.some(f => f.name.toLowerCase() === p.name.toLowerCase());
-  openModal(`<h2>${esc(p.name)}</h2>${rows.map(r => `<div class="stat"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')}
+  openModal(`<div class="pavatar"><span class="avatar lg" id="pAv"></span></div><h2>${esc(p.name)}</h2>${rows.map(r => `<div class="stat"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')}
     <div class="mrow">${canAdd ? '<button class="btn ghost" id="mAdd">Agregar amigo</button>' : ''}<button class="btn" id="mX">Cerrar</button></div>`);
   $('#mX').onclick = closeModal;
+  paintAvatar($('#pAv'), p.photo, p.name);
   const a = $('#mAdd'); if (a) a.onclick = () => { acc.friends.push({ name: p.name }); save(); closeModal(); toast(p.name + ' fue agregado a tus amigos.'); };
 }
 
@@ -332,7 +347,7 @@ function cueModal(curIdx, onPick) {
   openModal(`<h2>Tacos</h2>${P8.CUES.map((c, i) => {
     const own = P8.owned(acc, i);
     return `<div class="cuerow ${i === curIdx ? 'sel' : ''} ${own ? '' : 'lock'}" data-i="${i}"><canvas width="300" height="80"></canvas>
-      <div><b>${c.name}</b><br>Fuerza ${c.f} · Efecto ${c.e} · Puntería ${c.aim}<br>${own ? (i === curIdx ? 'EQUIPADO' : 'Toca para elegir') : `Bloqueado: ${Math.min(acc.pieces[i], c.need)}/${c.need} piezas (cajas)`}</div></div>`;
+      <div><b>${c.name}</b><br>Fuerza ${c.f} · Efecto ${c.e} · Puntería ${c.aim}<br>Alcance de la blanca: ${c.bands ? 'máx. ' + c.bands + ' bandas' : 'sin límite'}<br>${own ? (i === curIdx ? 'EQUIPADO' : 'Toca para elegir') : `Bloqueado: ${Math.min(acc.pieces[i], c.need)}/${c.need} piezas (cajas)`}</div></div>`;
   }).join('')}<div class="mrow"><button class="btn" id="mX">Cerrar</button></div>`);
   $$('.cuerow').forEach(r => {
     const i = +r.dataset.i, g = r.querySelector('canvas').getContext('2d');
@@ -372,8 +387,8 @@ $('#actCues').addEventListener('click', () => cueModal(acc.cue, i => { acc.cue =
 $('#actOnline').addEventListener('click', () => openOnline());
 
 /* ---------- online con amigos (WebRTC vía PeerJS) ---------- */
-const pubProfile = () => ({ name: acc.name, level: acc.level, games: acc.games, wins: acc.wins, earned: acc.earned, streak: acc.streak, best: acc.best, cue: acc.cue | 0, xp: acc.xp });
-function endNet() { try { net && net.peer && net.peer.destroy(); } catch (e) { } net = null; }
+const pubProfile = () => ({ name: acc.name, level: acc.level, games: acc.games, wins: acc.wins, earned: acc.earned, streak: acc.streak, best: acc.best, cue: acc.cue | 0, xp: acc.xp, photo: P8.cleanPhoto(acc.photoS || acc.photo) });
+function endNet() { voiceStop(); try { net && net.peer && net.peer.destroy(); } catch (e) { } net = null; }
 function netFail(msg) { endNet(); leaveFull(); openModal(`<h2>Online</h2><p>${msg}</p><div class="mrow"><button class="btn" id="mX">Cerrar</button></div>`); $('#mX').onclick = closeModal; }
 const havePeer = () => { if (typeof Peer === 'undefined') { toast('No se pudo cargar el servicio online. Revisa tu internet.'); return false; } return true; };
 
@@ -415,7 +430,7 @@ function hostOnline(tbl) {
     <p>Pídele a tu amigo que entre a <b>Jugar con amigos</b> y escriba tu usuario:<br><b style="font-size:22px;color:var(--gold)">${esc(acc.name)}</b></p>
     <div class="mrow" style="justify-content:center"><button class="btn ghost" id="mX">Cancelar</button></div></div>`);
   $('#mX').onclick = () => { endNet(); closeModal(); leaveFull(); };
-  const peer = new Peer(PREFIX + acc.name.toLowerCase()); net = { peer, conn: null };
+  const peer = new Peer(PREFIX + acc.name.toLowerCase()); net = { peer, conn: null }; voiceBind(peer);
   peer.on('open', () => { const w = $('#wMsg'); if (w) w.textContent = 'Sala abierta. Esperando a tu amigo...'; });
   peer.on('error', e => netFail(e.type === 'unavailable-id' ? 'Ya tienes una sala abierta (otra pestaña o dispositivo). Ciérrala e inténtalo de nuevo.' : 'Error de conexión (' + e.type + '). Revisa tu internet.'));
   peer.on('connection', conn => {
@@ -440,7 +455,7 @@ function joinOnline(friend) {
   endNet();
   openModal(`<div class="wait"><h2>Online</h2><div class="spin"></div><p>Buscando la sala de <b>${esc(friend)}</b>...</p><div class="mrow" style="justify-content:center"><button class="btn ghost" id="mX">Cancelar</button></div></div>`);
   $('#mX').onclick = () => { endNet(); closeModal(); leaveFull(); };
-  const peer = new Peer(); net = { peer, conn: null }; let to;
+  const peer = new Peer(); net = { peer, conn: null }; let to; voiceBind(peer);
   peer.on('error', e => { clearTimeout(to); netFail(e.type === 'peer-unavailable' ? `${esc(friend)} no tiene una sala abierta ahora mismo.` : 'Error de conexión (' + e.type + '). Revisa tu internet.'); });
   peer.on('open', () => {
     const conn = peer.connect(PREFIX + friend.toLowerCase(), { reliable: true }); net.conn = conn;
@@ -459,9 +474,83 @@ function joinOnline(friend) {
   });
 }
 
+/* ---------- chat de texto y chat de voz (solo partidas online) ---------- */
+const netui = $('#netui'), chatPanel = $('#chatPanel'), chatLog = $('#chatLog'), chatIn = $('#chatIn'), chatPop = $('#chatPop'),
+  chatN = $('#chatN'), micBtn = $('#micBtn'), voiceBar = $('#voiceBar');
+let unread = 0, popT;
+function badge() { chatN.textContent = unread > 9 ? '9+' : unread; chatN.classList.toggle('hidden', !unread); }
+function chatOpen(v) {
+  chatPanel.classList.toggle('hidden', !v);
+  if (v) { unread = 0; badge(); chatPop.classList.add('hidden'); chatLog.scrollTop = chatLog.scrollHeight; setTimeout(() => chatIn.focus(), 60); }
+  else chatIn.blur();
+}
+function netuiShow(on) {
+  netui.classList.toggle('hidden', !on);
+  chatOpen(false); chatLog.textContent = ''; chatIn.value = ''; unread = 0; badge(); chatPop.classList.add('hidden');
+}
+/** Los mensajes se muestran con textContent: se puede escribir cualquier carácter sin riesgo. */
+function chatAdd(name, text, mine) {
+  const row = document.createElement('div'); row.className = 'cmsg' + (mine ? ' me' : '');
+  const b = document.createElement('b'), t = document.createElement('span'); b.textContent = name; t.textContent = text; row.append(b, t); chatLog.append(row);
+  while (chatLog.children.length > 120) chatLog.firstChild.remove();
+  chatLog.scrollTop = chatLog.scrollHeight;
+  if (!mine && chatPanel.classList.contains('hidden')) {
+    unread++; badge(); chatPop.textContent = name + ': ' + text; chatPop.classList.remove('hidden');
+    clearTimeout(popT); popT = setTimeout(() => chatPop.classList.add('hidden'), 5000);
+  }
+}
+$('#chatBtn').addEventListener('click', () => chatOpen(chatPanel.classList.contains('hidden')));
+$('#chatClose').addEventListener('click', () => chatOpen(false));
+$('#chatForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const t = chatIn.value.slice(0, 500);
+  if (!t.trim() || !game || game.mode === 0) return;
+  game.send({ t: 'M', s: t }); chatAdd('Tú', t, true); chatIn.value = ''; chatIn.focus();
+});
+
+/* Voz: cada jugador que enciende el micrófono llama al otro (WebRTC). Quien recibe la llamada la contesta solo para escuchar,
+   así que si los dos encienden el micrófono se escuchan en ambos sentidos. */
+const voice = { stream: null, out: null, calls: new Set() };
+function rivalMicUI() {
+  const on = [...voice.calls].some(c => c.__au);
+  voiceBar.textContent = on ? '🔊 Tu rival tiene el micrófono encendido' : ''; voiceBar.classList.toggle('hidden', !on);
+}
+function micUI(on) { micBtn.classList.toggle('on', on); micBtn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+function voiceBind(peer) {
+  peer.on('call', call => {
+    call.answer(); voice.calls.add(call);
+    call.on('stream', st => {
+      if (call.__au) return;
+      const a = document.createElement('audio'); a.autoplay = true; a.setAttribute('playsinline', ''); a.srcObject = st; document.body.append(a); call.__au = a;
+      a.play().catch(() => { }); rivalMicUI();
+    });
+    const drop = () => { voice.calls.delete(call); if (call.__au) { call.__au.srcObject = null; call.__au.remove(); call.__au = null; } rivalMicUI(); };
+    call.on('close', drop); call.on('error', drop);
+  });
+}
+function micOff() {
+  try { voice.out && voice.out.close(); } catch (e) { }
+  voice.out = null; if (voice.stream) voice.stream.getTracks().forEach(t => t.stop()); voice.stream = null; micUI(false);
+}
+function voiceStop() {
+  micOff(); voice.calls.forEach(c => { try { c.close(); } catch (e) { } }); voice.calls.clear();
+  $$('body > audio').forEach(a => { a.srcObject = null; a.remove(); }); rivalMicUI();
+}
+micBtn.addEventListener('click', async () => {
+  if (voice.stream) { micOff(); return toast('Micrófono apagado.'); }
+  if (!net || !net.conn || !net.conn.open) return toast('Aún no hay conexión con tu rival.');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return toast('Este navegador no permite usar el micrófono aquí (se necesita una dirección https).');
+  let st;
+  try { st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+  catch (e) { return toast('No se pudo activar el micrófono. Revisa el permiso del navegador.'); }
+  if (!net || !net.conn || !net.conn.open) { st.getTracks().forEach(t => t.stop()); return; }
+  voice.stream = st; voice.out = net.peer.call(net.conn.peer, st); micUI(true); toast('Micrófono encendido: tu rival te escucha.');
+});
+
 /* ---------- foto y sesión ---------- */
 function setPhoto(photo) {
-  acc.photo = photo; save();
+  acc.photo = photo; acc.photoS = ''; save();
+  if (photo.startsWith('data:image')) shrink(photo, 128).then(d => { if (acc && acc.photo === photo) { acc.photoS = d; save(); } });
   paintAvatar($('#homeAvatar'), photo, acc.name); toast(photo ? 'Foto de perfil actualizada.' : 'Foto quitada.');
 }
 const pickHome = () => $('#homeFile').click();
