@@ -100,7 +100,7 @@
         <button class="btn" type="submit">Crear cuenta y jugar</button>
       </form>
     </div>
-    <p class="foot">Tu cuenta se guarda solo en este navegador.</p>
+    <p class="foot">Tu cuenta se guarda automáticamente en este navegador. Usa siempre la misma dirección web.</p>
   </div>
 </section>
 
@@ -130,12 +130,29 @@
       <div><b id="stSince">-</b><span>Miembro desde</span></div>
     </div>
 
+    <div class="actions">
+      <button type="button" class="btn act blue" id="actCues">Tacos</button>
+      <button type="button" class="btn act gold" id="actBoxes">Cajas <i class="badge hidden" id="boxN">0</i></button>
+      <button type="button" class="btn act pink" id="actGift">Regalo diario</button>
+      <button type="button" class="btn act orange" id="actOnline">Jugar con amigos (online)</button>
+    </div>
+
     <h3 class="sec">Elige tu mesa</h3>
     <div class="tables" id="tables"></div>
   </div>
 </section>
 
+<!-- ============ PARTIDA ============ -->
+<section id="play" class="screen">
+  <canvas id="board" width="1180" height="700"></canvas>
+</section>
+
+<!-- ============ VENTANAS ============ -->
+<div class="modal hidden" id="modal"><div class="mbox" id="mbox"></div></div>
+
 <div class="toast" id="toast" role="status"></div>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="game.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

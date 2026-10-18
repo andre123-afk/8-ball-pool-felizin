@@ -184,7 +184,7 @@ $('#formUp').addEventListener('submit', async e => {
   if (p1.length < 4) return err('#upErr', 'La contraseña debe tener al menos 4 caracteres.');
   if (p1 !== p2) return err('#upErr', 'Las contraseñas no coinciden.');
   const salt = Math.random().toString(36).slice(2);
-  all[key] = { name, salt, hash: await hash(p1, salt), photo: regPhoto, created: Date.now(), level: 1, xp: 0, coins: START_COINS, games: 0, wins: 0 };
+  all[key] = { name, salt, hash: await hash(p1, salt), photo: regPhoto, created: Date.now(), level: 1, xp: 0, coins: START_COINS, games: 0, wins: 0 }; normalize(all[key]);
   if (!write(KEY_USERS, all)) return err('#upErr', 'No hay espacio para guardar la cuenta. Prueba con otra foto.');
   $('#formUp').reset(); regPhoto = '';
   write(KEY_SESSION, key); localStorage.setItem(KEY_LAST, name);
@@ -202,53 +202,257 @@ $('#formIn').addEventListener('submit', async e => {
   enter(name.toLowerCase());
 });
 
-/* ================= PERFIL ================= */
-let cur = null;
-const TABLES = [
-  { n: 'Mesa Verde', bet: 100, box: 'Bronce', rule: '8 libre', c: '#c89a50', f: '#1d8a48', w: '#68391a' },
-  { n: 'Mesa Azul', bet: 500, box: 'Plata', rule: '8 cantada', c: '#c7ccd8', f: '#1f66bd', w: '#42342a' },
-  { n: 'Mesa Roja', bet: 2000, box: 'Oro', rule: '8 cantada', c: '#f0c040', f: '#a5242f', w: '#2c211f' },
-  { n: 'Felizin', bet: 1000000, box: 'Diamante', rule: '8 cantada', c: '#ffe27a', f: '#5c248a', w: '#ac821e', vip: true }
-];
+/* ================= CUENTA / PERFIL ================= */
+const P8 = window.Pool8;
+const PREFIX = 'pool8fz-';
+let cur = null, acc = null, game = null, net = null;
+
+function normalize(u) {
+  const n = (v, d) => (Number.isFinite(+v) && v !== null && v !== '' && v !== undefined ? +v : d);
+  u.level = Math.max(1, n(u.level, 1)); u.xp = n(u.xp, 0); u.coins = n(u.coins, START_COINS);
+  u.games = n(u.games, 0); u.wins = n(u.wins, 0); u.streak = n(u.streak, 0); u.best = n(u.best, 0);
+  u.cue = n(u.cue, 0); u.earned = n(u.earned, 0); u.lastGift = n(u.lastGift, -1);
+  if (!Array.isArray(u.boxes)) u.boxes = [];
+  if (!Array.isArray(u.pieces)) u.pieces = [];
+  while (u.pieces.length < P8.CUES.length) u.pieces.push(0);
+  if (!Array.isArray(u.friends)) u.friends = [];
+  if (!u.guest || typeof u.guest !== 'object') u.guest = P8.mkProfile('Jugador 2');
+  if (!P8.owned(u, u.cue)) u.cue = 0;
+  return u;
+}
+/** Guarda la cuenta activa al instante en el navegador. */
+function save() {
+  if (!cur || !acc) return;
+  const all = users(); all[cur] = acc;
+  if (!write(KEY_USERS, all)) toast('No se pudo guardar (almacenamiento lleno).');
+}
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { }
+
+/* ---------- ventanas ---------- */
+function openModal(html) { $('#mbox').innerHTML = html; $('#modal').classList.remove('hidden'); }
+function closeModal() { $('#modal').classList.add('hidden'); $('#mbox').innerHTML = ''; }
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 function enter(key) {
-  cur = key; const u = users()[key]; if (!u) return;
+  const all = users(); if (!all[key]) return;
+  cur = key; acc = normalize(all[key]);
+  if (acc.coins < 100) { acc.coins = 500; toast('Te regalamos 500 monedas para seguir jugando.'); }
+  save(); show('home'); refreshHome();
+}
+function refreshHome() {
+  const u = acc;
   paintAvatar($('#homeAvatar'), u.photo, u.name);
   $('#homeName').textContent = u.name;
-  const need = 80 + u.level * 40;
-  $('#homeLvl').textContent = `Nv. ${u.level}  ${u.xp}/${need}`;
+  const nd = P8.need(u);
+  $('#homeLvl').textContent = `Nv. ${u.level}  ${u.xp}/${nd}`;
   $('#homeCoins').textContent = fmt(u.coins);
   $('#stGames').textContent = u.games; $('#stWins').textContent = u.wins;
   $('#stRate').textContent = (u.games ? Math.round(u.wins * 100 / u.games) : 0) + '%';
-  $('#stSince').textContent = new Date(u.created).toLocaleDateString('es-CO', { month: 'short', year: 'numeric' });
-  $('#tables').innerHTML = TABLES.map(t => `
-    <div class="tcard ${t.vip ? 'vip' : ''}" style="--tc:${t.c};--tf:${t.f};--tw:${t.w}">
-      <h4>${t.n}</h4><div class="mini"></div>
+  $('#stSince').textContent = new Date(u.created || Date.now()).toLocaleDateString('es-CO', { month: 'short', year: 'numeric' });
+  const bn = $('#boxN'); bn.textContent = u.boxes.length; bn.classList.toggle('hidden', !u.boxes.length);
+  $('#tables').innerHTML = P8.TABLES.map((t, i) => `
+    <div class="tcard ${t.tier === 3 ? 'vip' : ''}" style="--tc:${P8.hex(t.trim)};--tf:${P8.hex(t.felt)};--tw:${P8.hex(t.wood)}">
+      <h4>${t.name}</h4><div class="mini"></div>
       <div class="trow"><span>Apuesta</span><b>${fmt(t.bet)}</b></div>
       <div class="trow"><span>Premio</span><b>${fmt(t.bet * 2)}</b></div>
       <div class="trow"><span>Jugadores</span><span>2 (1 vs 1)</span></div>
-      <div class="trow"><span>Caja</span><span>${t.box}</span></div>
-      <div class="trow"><span>Regla</span><span>${t.rule}</span></div>
-      <button class="btn" type="button" data-t="${t.n}">JUGAR</button>
+      <div class="trow"><span>Caja</span><span>${P8.TIER[t.tier]}</span></div>
+      <div class="trow"><span>Regla</span><span>${t.call ? '8 cantada' : '8 libre'}</span></div>
+      <button class="btn" type="button" data-t="${i}">${u.coins >= t.bet ? 'JUGAR' : 'Faltan monedas'}</button>
     </div>`).join('');
-  show('home');
-  requestAnimationFrame(() => { $('#homeXp').style.width = Math.min(100, u.xp * 100 / need) + '%'; });
+  $('#homeXp').style.width = '0';
+  requestAnimationFrame(() => { $('#homeXp').style.width = Math.min(100, u.xp * 100 / nd) + '%'; });
 }
+
+/* ---------- elegir modo de juego ---------- */
 $('#tables').addEventListener('click', e => {
-  const b = e.target.closest('[data-t]'); if (b) toast(`Abre el juego Pool8 (Java) para jugar en ${b.dataset.t}.`);
+  const b = e.target.closest('[data-t]'); if (!b) return;
+  const i = +b.dataset.t, t = P8.TABLES[i];
+  if (acc.coins < t.bet) return toast(`No tienes monedas suficientes para ${t.name} (apuesta ${fmt(t.bet)}).`);
+  openModal(`<h2>${t.name}</h2><p>Apuesta ${fmt(t.bet)} · Premio ${fmt(t.bet * 2)}</p>
+    <div class="grid2" style="margin-top:12px">
+      <button class="opt" id="mLocal">Local<small>2 jugadores en este equipo</small></button>
+      <button class="opt" id="mHost">Crear partida online<small>Tu amigo se une con tu usuario</small></button>
+    </div>
+    <div class="mrow"><button class="btn ghost" id="mJoin">Unirme a un amigo</button><button class="btn ghost" id="mX">Cancelar</button></div>`);
+  $('#mLocal').onclick = () => launchGame({ mode: 0, tbl: i, seed: Math.floor(Math.random() * 2 ** 31) });
+  $('#mHost').onclick = () => hostOnline(i);
+  $('#mJoin').onclick = openOnline;
+  $('#mX').onclick = closeModal;
 });
+
+/* ---------- partida ---------- */
+function launchGame(o) {
+  closeModal(); show('play');
+  game = new P8.Game({
+    canvas: $('#board'), acc, save, mode: o.mode, tbl: o.tbl, seed: o.seed, conn: o.conn || null,
+    onEnd: html => {
+      setTimeout(endNet, 1500);
+      openModal(`<h2>Resultado</h2>${html}<div class="mrow"><button class="btn" id="mOk">Continuar</button></div>`);
+      $('#mOk').onclick = () => { closeModal(); if (game) game.destroy(); game = null; enter(cur); };
+    },
+    onMenu: () => {
+      openModal(`<h2>Pausa</h2><p>Si abandonas pierdes la apuesta.</p><div class="mrow"><button class="btn ghost" id="mOut">Abandonar partida</button><button class="btn" id="mGo">Continuar</button></div>`);
+      $('#mGo').onclick = closeModal;
+      $('#mOut').onclick = () => { closeModal(); game && game.forfeit(); };
+    },
+    onProfile: (p, editable) => profileModal(p, editable),
+    onCue: who => cueModal(game.cueOf[who], i => game.setCue(who, i))
+  });
+}
+
+function profileModal(p, editable) {
+  const rows = [['Nivel', `${p.level} (${p.xp}/${P8.need(p)} XP)`], ['Partidas jugadas', p.games], ['Victorias', p.wins], ['Derrotas', p.games - p.wins],
+    ['% de victorias', (p.games ? Math.round(p.wins * 100 / p.games) : 0) + '%'], ['Ganancias totales', fmt(p.earned)], ['Racha actual', p.streak], ['Mejor racha', p.best], ['Taco', P8.CUES[Math.min(p.cue | 0, P8.CUES.length - 1)].name]];
+  const canAdd = game && game.mode !== 0 && !editable && !acc.friends.some(f => f.name.toLowerCase() === p.name.toLowerCase());
+  openModal(`<h2>${esc(p.name)}</h2>${rows.map(r => `<div class="stat"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')}
+    <div class="mrow">${canAdd ? '<button class="btn ghost" id="mAdd">Agregar amigo</button>' : ''}<button class="btn" id="mX">Cerrar</button></div>`);
+  $('#mX').onclick = closeModal;
+  const a = $('#mAdd'); if (a) a.onclick = () => { acc.friends.push({ name: p.name }); save(); closeModal(); toast(p.name + ' fue agregado a tus amigos.'); };
+}
+
+function cueModal(curIdx, onPick) {
+  openModal(`<h2>Tacos</h2>${P8.CUES.map((c, i) => {
+    const own = P8.owned(acc, i);
+    return `<div class="cuerow ${i === curIdx ? 'sel' : ''} ${own ? '' : 'lock'}" data-i="${i}"><canvas width="300" height="80"></canvas>
+      <div><b>${c.name}</b><br>Fuerza ${c.f} · Efecto ${c.e} · Puntería ${c.aim}<br>${own ? (i === curIdx ? 'EQUIPADO' : 'Toca para elegir') : `Bloqueado: ${Math.min(acc.pieces[i], c.need)}/${c.need} piezas (cajas)`}</div></div>`;
+  }).join('')}<div class="mrow"><button class="btn" id="mX">Cerrar</button></div>`);
+  $$('.cuerow').forEach(r => {
+    const i = +r.dataset.i, g = r.querySelector('canvas').getContext('2d');
+    P8.drawCueShape(g, 16, 60, 284, 20, P8.CUES[i], 10, 4);
+    r.addEventListener('click', () => { if (!P8.owned(acc, i)) return; onPick(i); closeModal(); });
+  });
+  $('#mX').onclick = closeModal;
+}
+
+/* ---------- cajas, regalo, tacos ---------- */
+function openBox() {
+  if (!acc.boxes.length) return toast('No tienes cajas. ¡Gana partidas para conseguirlas!');
+  const tier = acc.boxes.shift(), rg = [[50, 200], [300, 1000], [1500, 5000], [50000, 250000]][tier];
+  const c = rg[0] + Math.floor(Math.random() * (rg[1] - rg[0] + 1)); acc.coins += c;
+  let h = `<h2>Caja de ${P8.TIER[tier]}</h2><p>+${fmt(c)} monedas</p>`;
+  const n = Math.random() * 100 < 55 + tier * 15 ? 1 + (tier >= 2 ? 1 : 0) + (tier === 3 ? 1 : 0) : 0;
+  const pool = []; for (let i = 1; i < P8.CUES.length; i++) if (!P8.owned(acc, i)) pool.push(i);
+  for (let k = 0; k < n; k++) {
+    if (!pool.length) { const x = 500 * (tier + 1); acc.coins += x; h += `<p>+${fmt(x)} monedas extra (ya tienes todos los tacos)</p>`; break; }
+    const i = pool[Math.floor(Math.random() * pool.length)]; acc.pieces[i]++;
+    h += `<p>+1 pieza del taco <b>${P8.CUES[i].name}</b> (${Math.min(acc.pieces[i], P8.CUES[i].need)}/${P8.CUES[i].need})</p>`;
+    if (acc.pieces[i] >= P8.CUES[i].need) { h += '<p><b>¡Taco desbloqueado!</b></p>'; pool.splice(pool.indexOf(i), 1); }
+  }
+  if (!n) h += '<p>Esta vez no salieron piezas de taco.</p>';
+  save(); refreshHome();
+  openModal(h + '<div class="mrow"><button class="btn" id="mX">Genial</button></div>'); $('#mX').onclick = closeModal;
+}
+function dailyGift() {
+  const day = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5);
+  if (acc.lastGift === day) return toast('Ya recogiste el regalo de hoy. ¡Vuelve mañana!');
+  acc.lastGift = day; const c = 5000 + acc.level * 500; acc.coins += c; acc.boxes.push(0); save(); refreshHome();
+  toast(`Regalo diario: +${fmt(c)} monedas y una caja de Bronce.`);
+}
+$('#actBoxes').addEventListener('click', openBox);
+$('#actGift').addEventListener('click', dailyGift);
+$('#actCues').addEventListener('click', () => cueModal(acc.cue, i => { acc.cue = i; save(); toast('Taco equipado: ' + P8.CUES[i].name); }));
+$('#actOnline').addEventListener('click', () => openOnline());
+
+/* ---------- online con amigos (WebRTC vía PeerJS) ---------- */
+const pubProfile = () => ({ name: acc.name, level: acc.level, games: acc.games, wins: acc.wins, earned: acc.earned, streak: acc.streak, best: acc.best, cue: acc.cue | 0, xp: acc.xp });
+function endNet() { try { net && net.peer && net.peer.destroy(); } catch (e) { } net = null; }
+function netFail(msg) { endNet(); openModal(`<h2>Online</h2><p>${msg}</p><div class="mrow"><button class="btn" id="mX">Cerrar</button></div>`); $('#mX').onclick = closeModal; }
+const havePeer = () => { if (typeof Peer === 'undefined') { toast('No se pudo cargar el servicio online. Revisa tu internet.'); return false; } return true; };
+
+function openOnline() {
+  const draw = () => {
+    openModal(`<h2>Jugar con amigos</h2>
+      <p>Tu usuario online: <b>${esc(acc.name)}</b>. Tus amigos te encuentran con ese nombre cuando tienes una sala abierta.</p>
+      <h3>Crear partida</h3>
+      <div class="grid2">${P8.TABLES.map((t, i) => `<button class="opt ${acc.coins >= t.bet ? '' : 'off'}" data-h="${i}">${t.name}<small>Apuesta ${fmt(t.bet)}</small></button>`).join('')}</div>
+      <h3>Unirme a un amigo</h3>
+      <div style="display:flex;gap:8px"><input id="fJoin" maxlength="14" placeholder="Usuario de tu amigo"><button class="btn" id="bJoin">Unirme</button></div>
+      <h3>Mis amigos</h3>
+      <div id="fList">${acc.friends.length ? acc.friends.map((f, k) => `<div class="frow"><b>${esc(f.name)}</b><button class="go" data-j="${k}">Unirme</button><button data-d="${k}">Quitar</button></div>`).join('') : '<p>Aún no tienes amigos agregados.</p>'}</div>
+      <div style="display:flex;gap:8px;margin-top:10px"><input id="fAdd" maxlength="14" placeholder="Agregar amigo por usuario"><button class="btn ghost" id="bAdd">Agregar</button></div>
+      <div class="mrow"><button class="btn" id="mX">Cerrar</button></div>`);
+    $('#mX').onclick = closeModal;
+    $$('[data-h]').forEach(b => b.onclick = () => hostOnline(+b.dataset.h));
+    $('#bJoin').onclick = () => joinOnline($('#fJoin').value);
+    $$('[data-j]').forEach(b => b.onclick = () => joinOnline(acc.friends[+b.dataset.j].name));
+    $$('[data-d]').forEach(b => b.onclick = () => { acc.friends.splice(+b.dataset.d, 1); save(); draw(); });
+    $('#bAdd').onclick = () => {
+      const n = $('#fAdd').value.trim();
+      if (!/^[A-Za-z0-9_]{3,14}$/.test(n)) return toast('Usuario no válido.');
+      if (!acc.friends.some(f => f.name.toLowerCase() === n.toLowerCase())) { acc.friends.push({ name: n }); save(); }
+      draw();
+    };
+  };
+  draw();
+}
+
+function hostOnline(tbl) {
+  if (!havePeer()) return;
+  const t = P8.TABLES[tbl];
+  if (acc.coins < t.bet) return toast('No tienes monedas suficientes para esa mesa.');
+  const seed = Math.floor(Math.random() * 2 ** 31);
+  endNet();
+  openModal(`<div class="wait"><h2>${t.name}</h2><div class="spin"></div><p id="wMsg">Abriendo sala...</p>
+    <p>Pídele a tu amigo que entre a <b>Jugar con amigos</b> y escriba tu usuario:<br><b style="font-size:22px;color:var(--gold)">${esc(acc.name)}</b></p>
+    <div class="mrow" style="justify-content:center"><button class="btn ghost" id="mX">Cancelar</button></div></div>`);
+  $('#mX').onclick = () => { endNet(); closeModal(); };
+  const peer = new Peer(PREFIX + acc.name.toLowerCase()); net = { peer, conn: null };
+  peer.on('open', () => { const w = $('#wMsg'); if (w) w.textContent = 'Sala abierta. Esperando a tu amigo...'; });
+  peer.on('error', e => netFail(e.type === 'unavailable-id' ? 'Ya tienes una sala abierta (otra pestaña o dispositivo). Ciérrala e inténtalo de nuevo.' : 'Error de conexión (' + e.type + '). Revisa tu internet.'));
+  peer.on('connection', conn => {
+    if (net.conn || game) { conn.close(); return; }
+    net.conn = conn;
+    conn.on('open', () => conn.send({ t: 'T', tbl, seed, p: pubProfile() }));
+    conn.on('data', d => {
+      if (game) return game.onMsg(d);
+      if (d && d.t === 'P') { launchGame({ mode: 1, tbl, seed, conn }); game.onMsg(d); }
+      else if (d && d.t === 'NC') { toast('Tu amigo no tiene monedas para esa mesa.'); net && (net.conn = null); }
+    });
+    conn.on('close', () => { if (game) game.onMsg({ t: 'D' }); else if (net) net.conn = null; });
+  });
+}
+
+function joinOnline(friend) {
+  if (!havePeer()) return;
+  friend = String(friend || '').trim();
+  if (!/^[A-Za-z0-9_]{3,14}$/.test(friend)) return toast('Escribe el usuario de tu amigo.');
+  if (friend.toLowerCase() === acc.name.toLowerCase()) return toast('No puedes unirte a ti mismo.');
+  endNet();
+  openModal(`<div class="wait"><h2>Online</h2><div class="spin"></div><p>Buscando la sala de <b>${esc(friend)}</b>...</p><div class="mrow" style="justify-content:center"><button class="btn ghost" id="mX">Cancelar</button></div></div>`);
+  $('#mX').onclick = () => { endNet(); closeModal(); };
+  const peer = new Peer(); net = { peer, conn: null }; let to;
+  peer.on('error', e => { clearTimeout(to); netFail(e.type === 'peer-unavailable' ? `${esc(friend)} no tiene una sala abierta ahora mismo.` : 'Error de conexión (' + e.type + '). Revisa tu internet.'); });
+  peer.on('open', () => {
+    const conn = peer.connect(PREFIX + friend.toLowerCase(), { reliable: true }); net.conn = conn;
+    to = setTimeout(() => { if (!game) netFail('No se pudo conectar con ' + esc(friend) + '. Puede que su red bloquee la conexión directa.'); }, 15000);
+    conn.on('data', d => {
+      if (game) return game.onMsg(d);
+      if (d && d.t === 'T') {
+        clearTimeout(to);
+        const t = P8.TABLES[d.tbl];
+        if (!t) return netFail('Mesa no válida.');
+        if (acc.coins < t.bet) { conn.send({ t: 'NC' }); return netFail(`No tienes monedas para ${t.name} (apuesta ${fmt(t.bet)}).`); }
+        launchGame({ mode: 2, tbl: d.tbl, seed: d.seed, conn }); game.onMsg({ t: 'P', p: d.p });
+      }
+    });
+    conn.on('close', () => { clearTimeout(to); if (game) game.onMsg({ t: 'D' }); else netFail('La sala se cerró.'); });
+  });
+}
+
+/* ---------- foto y sesión ---------- */
 function setPhoto(photo) {
-  const all = users(); if (!all[cur]) return;
-  all[cur].photo = photo;
-  if (!write(KEY_USERS, all)) return toast('No se pudo guardar la foto.');
-  paintAvatar($('#homeAvatar'), photo, all[cur].name); toast(photo ? 'Foto de perfil actualizada.' : 'Foto quitada.');
+  acc.photo = photo; save();
+  paintAvatar($('#homeAvatar'), photo, acc.name); toast(photo ? 'Foto de perfil actualizada.' : 'Foto quitada.');
 }
 const pickHome = () => $('#homeFile').click();
 $('#homeAvatar').addEventListener('click', pickHome);
 $('#homePhoto').addEventListener('click', pickHome);
 $('#homeFile').addEventListener('change', e => { pickFile(e.target.files[0], setPhoto); e.target.value = ''; });
 $('#homeLogout').addEventListener('click', () => {
-  localStorage.removeItem(KEY_SESSION); cur = null; openLogin(); toast('Sesión cerrada.');
+  save(); localStorage.removeItem(KEY_SESSION); cur = null; acc = null; openLogin(); toast('Sesión cerrada.');
 });
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !game) closeModal(); });
 
 runLoader();
 })();
