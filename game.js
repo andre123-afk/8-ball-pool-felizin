@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 
-const W = 1180, H = 700, TX = 135, TY = 140, TW = 860, TH = 430, R = 12;
+const W = 1340, H = 700, TX = 135, TY = 140, TW = 860, TH = 430, R = 12;
 const AIM = 0, MOVE = 1, PLACE = 2, OVER = 3;
 const D = Math.PI / 180;
 
@@ -32,6 +32,7 @@ const SLR = { x: 22, y: TY, w: 40, h: TH }, PMR = { x: 1106, y: TY + 32, w: 40, 
 const MENUB = { x: 14, y: 14, w: 50, h: 50 }, EMB = { x: 16, y: 616, w: 48, h: 48 }, CUEB = { x: 1089, y: 92, w: 52, h: 52 };
 const AV = [{ x: 500, y: 10, w: 58, h: 58 }, { x: 642, y: 10, w: 58, h: 58 }];
 const SPX = 1115, SPY = 46, SPR = 30;
+const WHL = { x: 1250, y: 350, r: 64 }, CX = 590, PW = { x: 1096, y: 160, w: 64, h: 430 };
 const inR = (r, x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 
 /* ---------- utilidades ---------- */
@@ -145,8 +146,8 @@ function drawFlame(g, x, y, s) {
 }
 
 /* ---------- fondo (mesa) ---------- */
-function buildBg(t, tblIdx) {
-  const cvs = document.createElement('canvas'); cvs.width = W; cvs.height = H; const g = cvs.getContext('2d');
+function buildBg(t, tblIdx, S = 1) {
+  const cvs = document.createElement('canvas'); cvs.width = Math.round(W * S); cvs.height = Math.round(H * S); const g = cvs.getContext('2d'); g.scale(S, S);
   g.fillStyle = lg(g, 0, 0, 0, H, [[0, 'rgb(24,34,58)'], [1, 'rgb(8,12,22)']]); g.fillRect(0, 0, W, H);
   g.fillStyle = lg(g, 0, 0, 0, 86, [[0, 'rgb(36,50,84)'], [1, 'rgb(16,22,40)']]); g.fillRect(0, 0, W, 86);
   g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, 86, W, 5);
@@ -223,6 +224,7 @@ class Game {
     this.turn = 0; this.state = AIM; this.firstHit = -1; this.pocket8 = -1; this.called = -1; this.grp = [-1, -1];
     this.clearBefore = false; this.dragging = false; this.spinDrag = false; this.emoteOpen = false; this.broke = false;
     this.ang = 0; this.power = 0; this.sx = 0; this.sy = 0; this.dx0 = 0; this.dy0 = 0; this.mx = 0; this.my = 0;
+    this.ptr = new Map(); this.wheelRot = 0;
     this.msg = '¡Rompe la mesa!'; this.shooter = 0; this.pendingEnd = null; this.idle = 0; this.acc16 = 0; this.last = 0; this.dead = false;
 
     const b0 = this.balls[0]; b0.x = TX + TW * .25; b0.y = TY + TH / 2;
@@ -238,7 +240,7 @@ class Game {
       b.x = TX + TW * .72 + r * (2 * R * .866 + .3); b.y = TY + TH / 2 + (k - r / 2) * (2 * R + .3);
     }
     this.acc.coins = Math.max(0, this.acc.coins - this.T.bet); o.save();
-    this.bg = buildBg(this.T, this.tbl);
+    this.S = 0; this.bg = null; this.fit();
     this.bind();
     if (this.conn) {
       this.send({ t: 'P', p: this.pubProfile() });
@@ -409,7 +411,16 @@ class Game {
   stop() { this.dead = true; cancelAnimationFrame(this.raf); }
   destroy() {
     this.stop();
-    const c = this.cv; c.removeEventListener('pointerdown', this.h1); c.removeEventListener('pointermove', this.h2); c.removeEventListener('pointerup', this.h3); c.removeEventListener('pointercancel', this.h3);
+    const c = this.cv; c.removeEventListener('pointerdown', this.h1); c.removeEventListener('pointermove', this.h2); c.removeEventListener('pointerup', this.h3); c.removeEventListener('pointercancel', this.h4);
+    clearTimeout(this.rt); try { window.removeEventListener('resize', this.hr); window.removeEventListener('orientationchange', this.hr); } catch (e) { }
+  }
+  /** Ajusta la resolución real del canvas al tamaño de pantalla (nítido en pantalla completa). */
+  fit() {
+    const s = Math.min(2, Math.max(1, (window.devicePixelRatio || 1) * Math.min((window.innerWidth || W) / W, (window.innerHeight || H) / H)));
+    const S = Math.round(s * 4) / 4;
+    if (S === this.S && this.bg) return;
+    this.S = S; this.cv.width = Math.round(W * S); this.cv.height = Math.round(H * S);
+    this.bg = buildBg(this.T, this.tbl, S);
   }
 
   /* ---------- entrada ---------- */
@@ -419,22 +430,43 @@ class Game {
     for (let i = 1; i < 16; i++) if (this.balls[i].alive && Math.hypot(this.balls[i].x - x, this.balls[i].y - y) < 2 * R) return false;
     return true;
   }
-  setSpin() { this.sx = (this.mx - SPX) / SPR; this.sy = (this.my - SPY) / SPR; const l = Math.hypot(this.sx, this.sy); if (l > .9) { this.sx *= .9 / l; this.sy *= .9 / l; } }
+  setSpin(x = this.mx, y = this.my) { this.sx = (x - SPX) / SPR; this.sy = (y - SPY) / SPR; const l = Math.hypot(this.sx, this.sy); if (l > .9) { this.sx *= .9 / l; this.sy *= .9 / l; } }
   bind() {
     const c = this.cv; c.style.touchAction = 'none';
-    this.h1 = e => this.down(e); this.h2 = e => this.move(e); this.h3 = e => this.up(e);
-    c.addEventListener('pointerdown', this.h1); c.addEventListener('pointermove', this.h2); c.addEventListener('pointerup', this.h3); c.addEventListener('pointercancel', this.h3);
+    this.h1 = e => this.down(e); this.h2 = e => this.move(e); this.h3 = e => this.up(e); this.h4 = e => this.cancel(e);
+    c.addEventListener('pointerdown', this.h1); c.addEventListener('pointermove', this.h2); c.addEventListener('pointerup', this.h3); c.addEventListener('pointercancel', this.h4);
+    this.hr = () => { clearTimeout(this.rt); this.rt = setTimeout(() => { if (!this.dead) this.fit(); }, 120); };
+    if (window.addEventListener) { window.addEventListener('resize', this.hr); window.addEventListener('orientationchange', this.hr); }
   }
   aimAt(x, y) { const b = this.balls[0]; this.ang = Math.atan2(y - b.y, x - b.x); }
+  canAim() { return this.state === AIM && this.mine(); }
   move(e) {
-    [this.mx, this.my] = this.pos(e);
-    if (this.state === AIM && this.mine() && !this.dragging && !this.spinDrag && e.pointerType === 'mouse' && this.mx > TX - 60 && this.mx < TX + TW + 60) this.aimAt(this.mx, this.my);
-    if (this.spinDrag) this.setSpin();
-    if (this.dragging) this.power = Math.max(0, Math.min(1, -((this.mx - this.dx0) * Math.cos(this.ang) + (this.my - this.dy0) * Math.sin(this.ang)) / 220));
+    const [x, y] = this.pos(e), a = this.ptr.get(e.pointerId);
+    if (!a) { // ratón sin pulsar: el taco sigue al cursor
+      this.mx = x; this.my = y;
+      if (e.pointerType === 'mouse' && this.canAim() && x > TX - 60 && x < TX + TW + 60) this.aimAt(x, y);
+      return;
+    }
+    const norm = d => d > Math.PI ? d - 2 * Math.PI : d < -Math.PI ? d + 2 * Math.PI : d;
+    switch (a.k) {
+      case 'wheel': { // rueda de apuntado: gira el taco (mitad de velocidad = más precisión)
+        const t = Math.atan2(y - WHL.y, x - WHL.x), d = norm(t - a.a); a.a = t; this.wheelRot += d;
+        if (this.canAim()) this.ang += d * .5; break;
+      }
+      case 'power': this.power = Math.max(0, Math.min(1, (y - a.y0) / 150)); break; // deslizador: bajar = más fuerza
+      case 'pull': this.power = Math.max(0, Math.min(1, -((x - a.x0) * Math.cos(this.ang) + (y - a.y0) * Math.sin(this.ang)) / 220)); break;
+      case 'aim': { // deslizar el dedo: el taco gira alrededor de la blanca
+        const c = this.balls[0];
+        if (this.canAim() && Math.hypot(x - c.x, y - c.y) > 40 && Math.hypot(a.px - c.x, a.py - c.y) > 40) this.ang += norm(Math.atan2(y - c.y, x - c.x) - Math.atan2(a.py - c.y, a.px - c.x));
+        a.px = x; a.py = y; break;
+      }
+      case 'spin': this.setSpin(x, y); break;
+      case 'place': this.mx = x; this.my = y; break;
+    }
   }
   down(e) {
     e.preventDefault(); try { this.cv.setPointerCapture(e.pointerId); } catch (x) { }
-    [this.mx, this.my] = this.pos(e); const mx = this.mx, my = this.my;
+    const [mx, my] = this.pos(e); this.mx = mx; this.my = my;
     if (inR(MENUB, mx, my)) { this.o.onMenu(); return; }
     for (let p = 0; p < 2; p++) if (inR(AV[p], mx, my)) { this.o.onProfile(this.pl[p], this.mode === 0 ? p === 0 : p === this.me); return; }
     if (inR(EMB, mx, my)) { this.emoteOpen = !this.emoteOpen; return; }
@@ -444,36 +476,38 @@ class Game {
       return;
     }
     if (this.state === MOVE || this.state === OVER) return;
-    if (Math.hypot(mx - SPX, my - SPY) < SPR + 4) { if (this.mine()) { this.spinDrag = true; this.setSpin(); } return; }
+    if (Math.hypot(mx - SPX, my - SPY) < SPR + 4) { if (this.mine()) { this.ptr.set(e.pointerId, { k: 'spin' }); this.setSpin(mx, my); } return; }
     if (inR(CUEB, mx, my)) { if (this.mine()) this.o.onCue(this.mode === 0 ? this.turn : this.me); return; }
     if (!this.mine()) return;
     if (this.needCall()) for (let i = 0; i < 6; i++) if (Math.hypot(mx - P[i][0], my - P[i][1]) < 34) { this.called = i; this.msg = ''; return; }
-    if (this.state === PLACE) { if (this.validSpot(mx, my)) { this.balls[0].x = mx; this.balls[0].y = my; this.state = AIM; this.msg = ''; } return; }
-    if (e.pointerType !== 'mouse' && mx > TX - 60 && mx < TX + TW + 60) this.aimAt(mx, my);
-    this.dragging = true; this.dx0 = mx; this.dy0 = my;
+    if (this.state === PLACE) { this.ptr.set(e.pointerId, { k: 'place' }); return; }
+    if (Math.hypot(mx - WHL.x, my - WHL.y) < WHL.r + 16) { this.ptr.set(e.pointerId, { k: 'wheel', a: Math.atan2(my - WHL.y, mx - WHL.x) }); return; }
+    if ((mx < 100 && my > TY - 20 && my < TY + TH + 20) || inR(PW, mx, my)) { this.ptr.set(e.pointerId, { k: 'power', y0: my }); return; }
+    if (e.pointerType === 'mouse') this.ptr.set(e.pointerId, { k: 'pull', x0: mx, y0: my });
+    else this.ptr.set(e.pointerId, { k: 'aim', px: mx, py: my });
   }
-  up() {
-    this.spinDrag = false;
-    if (!this.dragging) return;
-    this.dragging = false;
-    if (this.power > .03) {
-      if (this.needCall() && this.called < 0) this.msg = '¡Antes debes elegir la tronera de la 8!';
-      else {
-        const c = this.balls[0], cu = CUES[this.cueOf[this.turn]];
-        const pw = this.power * (1 + .02 * cu.f), ssx = this.sx * (1 + .06 * cu.e), ssy = this.sy * (1 + .06 * cu.e);
-        this.send({ t: 'S', a: this.ang, pw, sx: ssx, sy: ssy, call: this.called, cx: c.x, cy: c.y });
-        this.shoot(this.ang, pw, ssx, ssy, this.called, c.x, c.y);
-        this.sx = 0; this.sy = 0;
-      }
+  up(e) {
+    const a = this.ptr.get(e.pointerId); if (!a) return; this.ptr.delete(e.pointerId);
+    if (a.k === 'power' || a.k === 'pull') { if (this.power > .03 && this.canAim()) this.fire(); this.power = 0; }
+    else if (a.k === 'place' && this.state === PLACE && this.mine() && this.validSpot(this.mx, this.my)) {
+      this.balls[0].x = this.mx; this.balls[0].y = this.my; this.state = AIM; this.msg = '';
     }
-    this.power = 0;
+  }
+  cancel(e) { const a = this.ptr.get(e.pointerId); this.ptr.delete(e.pointerId); if (a && (a.k === 'power' || a.k === 'pull')) this.power = 0; }
+  fire() {
+    if (this.needCall() && this.called < 0) { this.msg = '¡Antes debes elegir la tronera de la 8!'; return; }
+    const c = this.balls[0], cu = CUES[this.cueOf[this.turn]];
+    const pw = this.power * (1 + .02 * cu.f), ssx = this.sx * (1 + .06 * cu.e), ssy = this.sy * (1 + .06 * cu.e);
+    this.send({ t: 'S', a: this.ang, pw, sx: ssx, sy: ssy, call: this.called, cx: c.x, cy: c.y });
+    this.shoot(this.ang, pw, ssx, ssy, this.called, c.x, c.y);
+    this.sx = 0; this.sy = 0;
   }
   setCue(p, c) { this.cueOf[p] = c; this.pl[p].cue = c; this.o.save(); if (this.mode !== 0) this.send({ t: 'C', c }); }
 
   /* ---------- dibujo ---------- */
   paint() {
     const g = this.g, balls = this.balls;
-    g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(this.bg, 0, 0);
+    g.setTransform(this.S, 0, 0, this.S, 0, 0); g.drawImage(this.bg, 0, 0, W, H);
     this.drawSideTools(g);
     for (let i = 0; i < this.tray.length; i++) drawBall(g, TRX + TRW / 2, TRY + TRH - 18 - i * 22.5, this.tray[i], 10);
     if (this.called >= 0) { g.strokeStyle = '#ff0'; g.lineWidth = 3; circ(g, P[this.called][0], P[this.called][1], 32); g.stroke(); }
@@ -500,6 +534,31 @@ class Game {
     g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
     drawCueShape(g, CUEB.x + 8, CUEB.y + CUEB.h - 10, CUEB.x + CUEB.w - 8, CUEB.y + 10, CUES[this.cueOf[who]], 3, 1.4);
     txt(g, 'Tacos', CUEB.x + CUEB.w / 2, CUEB.y + CUEB.h + 15, F(12), '#fff', 1);
+    txt(g, 'Fuerza', SLR.x + SLR.w / 2, SLR.y + SLR.h + 18, F(12), '#fff', 1);
+    this.drawWheel(g);
+  }
+  drawWheel(g) {
+    const { x, y, r } = WHL, on = this.canAim();
+    g.save(); g.globalAlpha = on ? 1 : .4;
+    g.fillStyle = 'rgba(8,12,24,.6)'; rr(g, x - r - 22, y - r - 36, 2 * r + 44, 2 * r + 76, 26); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 1.5; g.stroke();
+    g.fillStyle = 'rgba(0,0,0,.45)'; circ(g, x + 2, y + 4, r); g.fill();
+    g.fillStyle = lg(g, x, y - r, x, y + r, [[0, 'rgb(84,92,112)'], [1, 'rgb(20,24,38)']]); circ(g, x, y, r); g.fill();
+    g.strokeStyle = 'rgb(255,210,74)'; g.lineWidth = 3; g.stroke();
+    g.save(); g.translate(x, y); g.rotate(this.wheelRot); g.lineCap = 'round';
+    for (let k = 0; k < 36; k++) {
+      const a = k * Math.PI / 18, l = k % 3 === 0 ? 13 : 7; g.strokeStyle = k === 0 ? 'rgb(255,210,74)' : 'rgba(255,255,255,.6)'; g.lineWidth = k % 3 === 0 ? 2.5 : 1.5;
+      g.beginPath(); g.moveTo(Math.cos(a) * (r - 5), Math.sin(a) * (r - 5)); g.lineTo(Math.cos(a) * (r - 5 - l), Math.sin(a) * (r - 5 - l)); g.stroke();
+    }
+    g.restore();
+    g.fillStyle = 'rgba(0,0,0,.4)'; circ(g, x, y, r * .5); g.fill(); g.strokeStyle = 'rgba(255,255,255,.3)'; g.lineWidth = 1.5; g.stroke();
+    const ux = Math.cos(this.ang), uy = Math.sin(this.ang), L = r * .4;
+    g.strokeStyle = 'rgb(255,255,255)'; g.lineWidth = 3; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x - ux * L * .6, y - uy * L * .6); g.lineTo(x + ux * L, y + uy * L); g.stroke();
+    g.fillStyle = 'rgb(255,210,74)'; g.beginPath(); g.moveTo(x + ux * (L + 9), y + uy * (L + 9)); g.lineTo(x + ux * L - uy * 6, y + uy * L + ux * 6); g.lineTo(x + ux * L + uy * 6, y + uy * L - ux * 6); g.closePath(); g.fill();
+    g.restore();
+    txt(g, 'APUNTAR', x, y + r + 24, F(13, 1), '#fff', 1);
+    txt(g, 'gira la rueda', x, y - r - 14, F(11), 'rgb(200,210,230)', 1);
   }
   drawCue(g) {
     const c = this.balls[0], ux = Math.cos(this.ang), uy = Math.sin(this.ang), cu = CUES[this.cueOf[this.turn]];
@@ -569,11 +628,11 @@ class Game {
       for (let i = 0; i < 6; i++) drawFace(g, 100 + i * 50, 572, 20, i);
     }
     const who = (this.broke ? 'Va el jugador ' : 'Saca el jugador ') + (this.turn + 1) + '  ·  ' + this.pl[this.turn].name + '  ·  ' + this.groupText(this.turn);
-    g.fillStyle = lg(g, 0, 636, 0, 672, [[0, 'rgba(10,14,28,.9)'], [1, 'rgba(30,40,70,.9)']]); rr(g, W / 2 - 270, 636, 540, 36, 18); g.fill();
+    g.fillStyle = lg(g, 0, 636, 0, 672, [[0, 'rgba(10,14,28,.9)'], [1, 'rgba(30,40,70,.9)']]); rr(g, CX - 270, 636, 540, 36, 18); g.fill();
     g.strokeStyle = 'rgb(60,255,80)'; g.lineWidth = 2; g.stroke();
-    txt(g, who, W / 2, 660, F(16, 1), '#fff', 1);
-    if (this.msg) txt(g, this.msg, W / 2, 692, F(14, 1), '#ff0', 1);
-    if (this.mode !== 0 && this.state === MOVE && this.shooter !== this.me) txt(g, 'Tiro del rival...', W / 2, 692, F(14, 1), 'rgb(200,210,230)', 1);
+    txt(g, who, CX, 660, F(16, 1), '#fff', 1);
+    if (this.msg) txt(g, this.msg, CX, 692, F(14, 1), '#ff0', 1);
+    if (this.mode !== 0 && this.state === MOVE && this.shooter !== this.me) txt(g, 'Tiro del rival...', CX, 692, F(14, 1), 'rgb(200,210,230)', 1);
   }
 }
 

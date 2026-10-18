@@ -2,7 +2,11 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#050a14">
 <title>8 Ball Pool · Felizin</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -144,7 +148,9 @@
 
 <!-- ============ PARTIDA ============ -->
 <section id="play" class="screen">
-  <canvas id="board" width="1180" height="700"></canvas>
+  <canvas id="board" width="1340" height="700"></canvas>
+  <button type="button" class="fsbtn" id="fsBtn" aria-label="Pantalla completa">&#x26F6;</button>
+  <div class="rotate" id="rotate"><div class="ricon">&#x21BB;</div><p>Gira tu celular en horizontal para jugar</p></div>
 </section>
 
 <!-- ============ VENTANAS ============ -->

@@ -228,6 +228,23 @@ function save() {
 }
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { }
 
+/* ---------- pantalla completa ---------- */
+function goFull() {
+  try {
+    const el = document.documentElement, rq = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!rq || document.fullscreenElement || document.webkitFullscreenElement) return;
+    const p = rq.call(el);
+    const lock = () => { try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => { }); } catch (e) { } };
+    if (p && p.then) p.then(lock).catch(() => { }); else lock();
+  } catch (e) { }
+}
+function leaveFull() {
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) { const p = (document.exitFullscreen || document.webkitExitFullscreen).call(document); p && p.catch && p.catch(() => { }); }
+    screen.orientation && screen.orientation.unlock && screen.orientation.unlock();
+  } catch (e) { }
+}
+
 /* ---------- ventanas ---------- */
 function openModal(html) { $('#mbox').innerHTML = html; $('#modal').classList.remove('hidden'); }
 function closeModal() { $('#modal').classList.add('hidden'); $('#mbox').innerHTML = ''; }
@@ -283,13 +300,13 @@ $('#tables').addEventListener('click', e => {
 
 /* ---------- partida ---------- */
 function launchGame(o) {
-  closeModal(); show('play');
+  closeModal(); goFull(); show('play');
   game = new P8.Game({
     canvas: $('#board'), acc, save, mode: o.mode, tbl: o.tbl, seed: o.seed, conn: o.conn || null,
     onEnd: html => {
       setTimeout(endNet, 1500);
       openModal(`<h2>Resultado</h2>${html}<div class="mrow"><button class="btn" id="mOk">Continuar</button></div>`);
-      $('#mOk').onclick = () => { closeModal(); if (game) game.destroy(); game = null; enter(cur); };
+      $('#mOk').onclick = () => { closeModal(); leaveFull(); if (game) game.destroy(); game = null; enter(cur); };
     },
     onMenu: () => {
       openModal(`<h2>Pausa</h2><p>Si abandonas pierdes la apuesta.</p><div class="mrow"><button class="btn ghost" id="mOut">Abandonar partida</button><button class="btn" id="mGo">Continuar</button></div>`);
@@ -357,7 +374,7 @@ $('#actOnline').addEventListener('click', () => openOnline());
 /* ---------- online con amigos (WebRTC vía PeerJS) ---------- */
 const pubProfile = () => ({ name: acc.name, level: acc.level, games: acc.games, wins: acc.wins, earned: acc.earned, streak: acc.streak, best: acc.best, cue: acc.cue | 0, xp: acc.xp });
 function endNet() { try { net && net.peer && net.peer.destroy(); } catch (e) { } net = null; }
-function netFail(msg) { endNet(); openModal(`<h2>Online</h2><p>${msg}</p><div class="mrow"><button class="btn" id="mX">Cerrar</button></div>`); $('#mX').onclick = closeModal; }
+function netFail(msg) { endNet(); leaveFull(); openModal(`<h2>Online</h2><p>${msg}</p><div class="mrow"><button class="btn" id="mX">Cerrar</button></div>`); $('#mX').onclick = closeModal; }
 const havePeer = () => { if (typeof Peer === 'undefined') { toast('No se pudo cargar el servicio online. Revisa tu internet.'); return false; } return true; };
 
 function openOnline() {
@@ -391,12 +408,13 @@ function hostOnline(tbl) {
   if (!havePeer()) return;
   const t = P8.TABLES[tbl];
   if (acc.coins < t.bet) return toast('No tienes monedas suficientes para esa mesa.');
+  goFull();
   const seed = Math.floor(Math.random() * 2 ** 31);
   endNet();
   openModal(`<div class="wait"><h2>${t.name}</h2><div class="spin"></div><p id="wMsg">Abriendo sala...</p>
     <p>Pídele a tu amigo que entre a <b>Jugar con amigos</b> y escriba tu usuario:<br><b style="font-size:22px;color:var(--gold)">${esc(acc.name)}</b></p>
     <div class="mrow" style="justify-content:center"><button class="btn ghost" id="mX">Cancelar</button></div></div>`);
-  $('#mX').onclick = () => { endNet(); closeModal(); };
+  $('#mX').onclick = () => { endNet(); closeModal(); leaveFull(); };
   const peer = new Peer(PREFIX + acc.name.toLowerCase()); net = { peer, conn: null };
   peer.on('open', () => { const w = $('#wMsg'); if (w) w.textContent = 'Sala abierta. Esperando a tu amigo...'; });
   peer.on('error', e => netFail(e.type === 'unavailable-id' ? 'Ya tienes una sala abierta (otra pestaña o dispositivo). Ciérrala e inténtalo de nuevo.' : 'Error de conexión (' + e.type + '). Revisa tu internet.'));
@@ -418,9 +436,10 @@ function joinOnline(friend) {
   friend = String(friend || '').trim();
   if (!/^[A-Za-z0-9_]{3,14}$/.test(friend)) return toast('Escribe el usuario de tu amigo.');
   if (friend.toLowerCase() === acc.name.toLowerCase()) return toast('No puedes unirte a ti mismo.');
+  goFull();
   endNet();
   openModal(`<div class="wait"><h2>Online</h2><div class="spin"></div><p>Buscando la sala de <b>${esc(friend)}</b>...</p><div class="mrow" style="justify-content:center"><button class="btn ghost" id="mX">Cancelar</button></div></div>`);
-  $('#mX').onclick = () => { endNet(); closeModal(); };
+  $('#mX').onclick = () => { endNet(); closeModal(); leaveFull(); };
   const peer = new Peer(); net = { peer, conn: null }; let to;
   peer.on('error', e => { clearTimeout(to); netFail(e.type === 'peer-unavailable' ? `${esc(friend)} no tiene una sala abierta ahora mismo.` : 'Error de conexión (' + e.type + '). Revisa tu internet.'); });
   peer.on('open', () => {
@@ -452,6 +471,9 @@ $('#homeFile').addEventListener('change', e => { pickFile(e.target.files[0], set
 $('#homeLogout').addEventListener('click', () => {
   save(); localStorage.removeItem(KEY_SESSION); cur = null; acc = null; openLogin(); toast('Sesión cerrada.');
 });
+const fsBtn = $('#fsBtn'), fsEl = document.documentElement;
+if (!(fsEl.requestFullscreen || fsEl.webkitRequestFullscreen)) fsBtn.classList.add('hidden');
+fsBtn.addEventListener('click', () => (document.fullscreenElement || document.webkitFullscreenElement) ? leaveFull() : goFull());
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !game) closeModal(); });
 
 runLoader();

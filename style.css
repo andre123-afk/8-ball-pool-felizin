@@ -5,7 +5,7 @@
   --line:rgba(255,255,255,.16); --ok:#4be07a; --bad:#ff6b5e;
   font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;
 }
-html,body{height:100%;overflow:hidden;color:#fff;background:#050a14}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none;color:#fff;background:#050a14}
 button,input{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none}
 .hidden{display:none!important}
@@ -204,7 +204,7 @@ body[data-mode="login"] .bg-night,body[data-mode="home"] .bg-night{opacity:0}
 .btn.act:active{transform:translateY(4px)}
 .badge{position:absolute;top:-8px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;background:#e0201c;color:#fff;font:800 13px/24px sans-serif;font-style:normal;text-align:center}
 #play{padding:0;background:#070b14;place-items:center;overflow:hidden}
-#board{display:block;width:min(100vw,calc(100vh * 1180 / 700));height:auto;aspect-ratio:1180/700;touch-action:none;cursor:crosshair}
+#board{display:block;width:min(100vw,calc(100vh * 1340 / 700));width:min(100vw,calc(100dvh * 1340 / 700));height:auto;aspect-ratio:1340/700;touch-action:none;cursor:crosshair;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 body[data-mode="play"] #fx{display:none}
 body[data-mode="play"] .bg-sun{opacity:0}
 .modal{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:16px;background:rgba(3,6,14,.72);backdrop-filter:blur(4px)}
@@ -228,3 +228,12 @@ body[data-mode="play"] .bg-sun{opacity:0}
 .cuerow canvas{width:150px;height:40px;flex:none}.cuerow div{flex:1;font-size:13px}.cuerow b{font-size:16px}
 .stat{display:flex;justify-content:space-between;padding:6px 10px;border-radius:8px}.stat:nth-child(odd){background:rgba(255,255,255,.07)}
 .wait{text-align:center}.spin{width:44px;height:44px;margin:12px auto;border-radius:50%;border:5px solid rgba(255,255,255,.2);border-top-color:var(--gold);animation:spin 1s linear infinite}
+
+/* ============ PANTALLA COMPLETA / MÓVIL ============ */
+#play{height:100vh;height:100dvh}
+.fsbtn{position:fixed;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));z-index:6;width:44px;height:44px;border-radius:12px;font-size:24px;line-height:44px;text-align:center;
+  background:rgba(10,14,28,.7);border:2px solid rgba(255,255,255,.5);color:#fff;display:none}
+body[data-mode="play"] .fsbtn{display:block}
+.rotate{position:fixed;inset:0;z-index:15;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#050a14;text-align:center;padding:30px;font-size:20px;font-weight:700}
+.ricon{font-size:80px;color:var(--gold);animation:spin 2s linear infinite}
+@media (orientation:portrait) and (max-width:900px){body[data-mode="play"] .rotate{display:flex}}
