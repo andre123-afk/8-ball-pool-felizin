@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>8 Ball Pool · Felizin</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-mode="loader">
+
+<div class="bgl bg-night"></div>
+<div class="bgl bg-sun"></div>
+<canvas id="fx" aria-hidden="true"></canvas>
+
+<!-- ============ PANTALLA DE CARGA ============ -->
+<section id="loader" class="screen active" aria-live="polite">
+  <div class="ld">
+    <div class="stage" aria-hidden="true">
+      <div class="orbit">
+        <div class="ob" style="--i:0"><i class="ball" style="--c:#f5c400" data-n="1"></i></div>
+        <div class="ob" style="--i:1"><i class="ball" style="--c:#1d4fd8" data-n="2"></i></div>
+        <div class="ob" style="--i:2"><i class="ball" style="--c:#e0201c" data-n="3"></i></div>
+        <div class="ob" style="--i:3"><i class="ball" style="--c:#6a2a9c" data-n="4"></i></div>
+        <div class="ob" style="--i:4"><i class="ball" style="--c:#f07a00" data-n="5"></i></div>
+        <div class="ob" style="--i:5"><i class="ball" style="--c:#0c8a45" data-n="6"></i></div>
+      </div>
+      <div class="hero">
+        <i class="ball big" style="--c:#161616" data-n="8"></i>
+        <div class="floor"></div>
+      </div>
+    </div>
+
+    <h1 class="logo"><small>8 BALL</small><span>POOL</span></h1>
+
+    <div class="cue" id="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="cue-fill" id="fill"><b class="cue-ball"></b></div>
+    </div>
+    <div class="ld-row"><span id="step">Preparando la mesa...</span><strong id="pct">0%</strong></div>
+    <p class="hint" id="hint"></p>
+  </div>
+</section>
+
+<!-- ============ INICIAR SESIÓN / CREAR CUENTA ============ -->
+<section id="login" class="screen">
+  <div class="wrap">
+    <h1 class="logo sm"><small>8 BALL</small><span>POOL</span></h1>
+
+    <div class="card">
+      <button type="button" class="quick hidden" id="quick">
+        <span class="avatar xs" id="quickAv"></span>
+        <span>Continuar como <b id="quickName"></b></span>
+      </button>
+
+      <div class="tabs">
+        <button type="button" class="tab on" data-tab="in">Iniciar sesión</button>
+        <button type="button" class="tab" data-tab="up">Crear cuenta</button>
+        <i class="tab-ink"></i>
+      </div>
+
+      <!-- Iniciar sesión -->
+      <form id="formIn" class="form" novalidate>
+        <label class="fld"><span>Usuario</span>
+          <input id="inUser" autocomplete="username" maxlength="14" placeholder="Tu nombre de jugador">
+        </label>
+        <label class="fld"><span>Contraseña</span>
+          <div class="pw">
+            <input id="inPass" type="password" autocomplete="current-password" placeholder="••••••">
+            <button type="button" class="eye" data-eye="inPass">Mostrar</button>
+          </div>
+        </label>
+        <label class="chk"><input type="checkbox" id="inRemember" checked><span>Recordarme en este equipo</span></label>
+        <p class="err" id="inErr" role="alert"></p>
+        <button class="btn" type="submit">Entrar a jugar</button>
+      </form>
+
+      <!-- Crear cuenta con foto de perfil -->
+      <form id="formUp" class="form hidden" novalidate>
+        <div class="pick">
+          <button type="button" class="avatar lg" id="upAvatar" aria-label="Elegir foto de perfil"></button>
+          <span class="cam" aria-hidden="true">+</span>
+          <input type="file" id="upFile" accept="image/*" hidden>
+        </div>
+        <p class="pick-note">Toca el círculo o arrastra tu foto aquí</p>
+        <div class="presets" id="presets"></div>
+        <button type="button" class="link" id="upRemove">Quitar foto</button>
+
+        <label class="fld"><span>Usuario</span>
+          <input id="upUser" autocomplete="username" maxlength="14" placeholder="3 a 14 letras, números o _">
+        </label>
+        <label class="fld"><span>Contraseña</span>
+          <div class="pw">
+            <input id="upPass" type="password" autocomplete="new-password" placeholder="Mínimo 4 caracteres">
+            <button type="button" class="eye" data-eye="upPass">Mostrar</button>
+          </div>
+        </label>
+        <label class="fld"><span>Repite la contraseña</span>
+          <input id="upPass2" type="password" autocomplete="new-password" placeholder="••••••">
+        </label>
+        <p class="err" id="upErr" role="alert"></p>
+        <button class="btn" type="submit">Crear cuenta y jugar</button>
+      </form>
+    </div>
+    <p class="foot">Tu cuenta se guarda solo en este navegador.</p>
+  </div>
+</section>
+
+<!-- ============ PERFIL / INICIO ============ -->
+<section id="home" class="screen">
+  <div class="home-wrap">
+    <header class="topbar">
+      <div class="who">
+        <button type="button" class="avatar md" id="homeAvatar" aria-label="Cambiar foto de perfil"></button>
+        <div>
+          <h2 id="homeName">Jugador</h2>
+          <div class="xp"><i id="homeXp"></i><span id="homeLvl">Nv. 1</span></div>
+        </div>
+      </div>
+      <div class="top-right">
+        <div class="coins"><i class="coin"></i><b id="homeCoins">0</b></div>
+        <button type="button" class="btn ghost" id="homePhoto">Cambiar foto</button>
+        <button type="button" class="btn ghost" id="homeLogout">Cerrar sesión</button>
+      </div>
+      <input type="file" id="homeFile" accept="image/*" hidden>
+    </header>
+
+    <div class="stats">
+      <div><b id="stGames">0</b><span>Partidas</span></div>
+      <div><b id="stWins">0</b><span>Victorias</span></div>
+      <div><b id="stRate">0%</b><span>% de victorias</span></div>
+      <div><b id="stSince">-</b><span>Miembro desde</span></div>
+    </div>
+
+    <h3 class="sec">Elige tu mesa</h3>
+    <div class="tables" id="tables"></div>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>
